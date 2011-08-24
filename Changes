@@ -1,0 +1,12 @@
+0.03
+    2010-12-06
+        * Further corrections on parse_groups bug that was further pointed out by Lester Hightower.
+
+0.02
+    2010-12-03
+        * Correct parse_groups bug that was pointed out by Lester Hightower.
+        * Add parsing/writing of dates on groups.
+
+0.01
+    2010-06-28
+        * First release

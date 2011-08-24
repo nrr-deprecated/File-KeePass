@@ -1,0 +1,325 @@
+NAME
+    File::KeePass - Interface to KeePass V1 database files
+
+SYNOPSIS
+        use File::KeePass;
+        use Data::Dumper qw(Dumper);
+
+        my $k = File::KeePass->new;
+        if (! eval { $k->load_db($file, $master_pass) }) {
+            die "Couldn't load the file $file: $@";
+        }
+
+        print Dumper $k->groups; # passwords are locked
+
+        $k->unlock;
+        print Dumper $k->groups; # passwords are now visible
+
+        $k->clear; # delete current db from memory
+
+
+        my $group = $k->add_group({
+            title => 'Foo',
+        }); # root level group
+        my $gid = $group->{'id'};
+
+        my $group = $k->find_group({id => $gid});
+        # OR
+        my $group = $k->find_group({title => 'Foo'});
+
+
+        my $group2 = $k->add_group({
+            title => 'Bar',
+            group => $gid,
+            # OR group => $group,
+        }); # nested group
+
+
+        my $e = $k->add_entry({
+            title    => 'Something',
+            username => 'someuser',
+            password => 'somepass',
+            group    => $gid,
+            # OR group => $group,
+        });
+        my $eid = $e->{'id'};
+
+        my $e = $k->find_entry({id => $eid});
+        # OR
+        my $e = $k->find_entry({title => 'Something'});
+
+        $k->lock;
+        print $e->{'password'}; # eq undef
+        print $k->locked_entry_password($e); # eq 'somepass'
+
+        $k->unlock;
+        print $e->{'password'}; # eq 'somepass'
+
+
+        $k->save_db("/some/file/location.kdb", $master_pass);
+
+METHODS
+    new Returns a new File::KeePass object. Any named arguments are added to
+        self.
+
+    auto_lock
+        Default true. If true, passwords are automatically hidden when a
+        database loaded via parse_db or load_db.
+
+            $k->auto_lock(0); # turn off auto locking
+
+    load_db
+        Takes a kdb filename and a master password. Returns true on success.
+        Errors die. The resulting database can be accessed via various
+        methods including $k->groups.
+
+    save_db
+        Takes a kdb filename and a master password. Stores out the current
+        groups in the object. Writes attempt to write first to
+        $file.new.$epoch and are then renamed into the correct location.
+
+        You will need to unlock the db via $k->unlock before calling this
+        method if the database is currently locked.
+
+    clear
+        Clears any currently loaded groups database.
+
+    parse_db
+        Takes an encrypted kdb database and a master password. Returns true
+        on success. Errors die. The resulting database can be accessed via
+        various methods including $k->groups.
+
+    parse_header
+        Used by parse_db.
+
+    parse_groups
+        Used by parse_db.
+
+    parse_entries
+        Used by parse_db.
+
+    parse_date
+        Parses a kdb packed date.
+
+    decrypt_rijndael_cbc
+        Takes an encrypted string, a key, and an encryption_iv string.
+        Returns a plaintext string.
+
+    encrypt_rijndael_cbc
+        Takes a plaintext string, a key, and an encryption_iv string.
+        Returns an encrypted string.
+
+    gen_db
+        Takes a master password. Optionally takes a "groups" arrayref and a
+        "headers" hashref. If groups are not passed, it defaults to using
+        the currently loaded groups. If headers are not passed, a fresh set
+        of headers are generated based on the groups and the master
+        password. The headers can be passed in to test round trip
+        portability.
+
+        You will need to unlock the db via $k->unlock before calling this
+        method if the database is currently locked.
+
+    gen_header
+        Returns a kdb file header.
+
+    gen_date
+        Returns a kdb packed date.
+
+    dump_groups
+        Returns a simplified string representation of the currently loaded
+        database.
+
+            print $k->dump_groups;
+
+        You can optionally pass a match argument hashref. Only entries
+        matching the criteria will be returned.
+
+    groups
+        Returns an arrayref of groups from the currently loaded database.
+        Groups returned will be hierarchal. Note, groups simply returns a
+        reference to all of the data. It makes no attempts at cleaning up
+        the data (find_groups will make sure the data is groomed).
+
+            my $g = $k->groups;
+
+        Groups will look similar to the following:
+
+            $g = [{
+                 expanded => 0,
+                 icon     => 0,
+                 id       => 234234234,
+                 title    => 'Foo',
+                 level    => 0,
+                 entries => [{
+                     accessed => "2010-06-24 15:09:19",
+                     bin_desc => "",
+                     binary   => "",
+                     comment  => "",
+                     created  => "2010-06-24 15:09:19",
+                     expires  => "2999-12-31 23:23:59",
+                     icon     => 0,
+                     modified => "2010-06-24 15:09:19",
+                     title    => "Something",
+                     password => 'somepass', # will be hidden if the database is locked
+                     url      => "",
+                     username => "someuser",
+                     id       => "0a55ac30af68149f62c072d7cc8bd5ee"
+                 }],
+                 groups => [{
+                     expanded => 0,
+                     icon     => 0,
+                     id       => 994414667,
+                     level    => 1,
+                     title    => "Bar"
+                 }],
+             }];
+
+    header
+        Returns the current loaded db header.
+
+    add_group
+        Adds a new group to the database. Returns a reference to the new
+        group. If a database isn't loaded, it begins a new one. Takes a
+        hashref of arguments for the new entry including title, icon,
+        expanded. A new random group id will be generated. An optional group
+        argument can be passed. If a group is passed the new group will be
+        added under that parent group.
+
+            my $group = $k->add_group({title => 'Foo'});
+            my $gid = $group->{'id'};
+
+            my $group2 = $k->add_group({title => 'Bar', group => $gid});
+
+        The group argument's value may also be a reference to a group - such
+        as that returned by find_group.
+
+    finder_tests {
+        Used by find_groups and find_entries. Takes a hashref of arguments
+        and returns a list of test code refs.
+
+            {title => 'Foo'} # will check if title equals Foo
+            {'title !' => 'Foo'} # will check if title does not equal Foo
+            {'title =~' => qr{^Foo$}} # will check if title does matches the regex
+            {'title !~' => qr{^Foo$}} # will check if title does not match the regex
+
+    find_groups
+        Takes a hashref of search criteria and returns all matching groups.
+        Can be passed id, title, icon, and level. Search arguments will be
+        parsed by finder_tests.
+
+            my @groups = $k->find_groups({title => 'Foo'});
+
+            my @all_groups_flattened = $k->find_groups({});
+
+        The find_groups method also checks to make sure group ids are unique
+        and that all needed values are defined.
+
+    find_group
+        Calls find_groups and returns the first group found. Dies if
+        multiple results are found. In scalar context it returns only the
+        group. In list context it returns the group, and its the arrayref in
+        which it is stored (either the root level group or a sub groups
+        group item).
+
+    delete_group
+        Passes arguments to find_group to find the group to delete. Then
+        deletes the group. Returns the group that was just deleted.
+
+    add_entry
+        Adds a new entry to the database. Returns a reference to the new
+        entry. An optional group argument can be passed. If a group is not
+        passed, the entry will be added to the first group in the database.
+        A new entry id will be created if one is not passed or if it
+        conflicts with an existing group.
+
+        The following fields can be passed.
+
+            accessed => "2010-06-24 15:09:19", # last accessed date
+            bin_desc => "", # description of the stored binary - typically a filename
+            binary   => "", # raw data to be stored in the system - typically a file
+            comment  => "", # a comment for the system - auto-type info is normally here
+            created  => "2010-06-24 15:09:19", # entry creation date
+            expires  => "2999-12-31 23:23:59", # date entry expires
+            icon     => 0, # icon number for use with agents
+            modified => "2010-06-24 15:09:19", # last modified
+            title    => "Something",
+            password => 'somepass', # will be hidden if the database is locked
+            url      => "",
+            username => "someuser",
+            id       => "0a55ac30af68149f62c072d7cc8bd5ee" # randomly generated automatically
+
+            group    => $gid, # which group to add the entry to
+
+        The group argument's value may also be a reference to a group - such
+        as that returned by find_group.
+
+    find_entries
+        Takes a hashref of search criteria and returns all matching groups.
+        Can be passed an entry id, title, username, comment, url, active,
+        group_id, group_title, or any other entry property. Search arguments
+        will be parsed by finder_tests.
+
+            my @entries = $k->find_entries({title => 'Something'});
+
+            my @all_entries_flattened = $k->find_entries({});
+
+    find_entry
+        Calls find_entries and returns the first entry found. Dies if
+        multiple results are found. In scalar context it returns only the
+        entry. In list context it returns the entry, and its group.
+
+    delete_entry
+        Passes arguments to find_entry to find the entry to delete. Then
+        deletes the entry. Returns the entry that was just deleted.
+
+    now Returns the current localtime datetime stamp.
+
+    is_locked
+        Returns true if the current database is locked.
+
+    lock
+        Locks the database. This moves all passwords into a protected, in
+        memory, encrypted storage location. Returns 1 on success. Returns 2
+        if the db is already locked. If a database is loaded vai parse_db or
+        load_db and auto_lock is true, the newly loaded database will start
+        out locked.
+
+    unlock
+        Unlocks a previously locked database. You will need to unlock a
+        database before calling save_db or gen_db.
+
+    locked_entry_password
+        Allows access to individual passwords for a database that is locked.
+        Dies if the database is not locked.
+
+BUGS
+    Only Rijndael is supported.
+
+    Only passkeys are supported (no key files).
+
+    This module makes no attempt to act as a password agent. That is the job
+    of File::KeePass::Agent. This isn't really a bug but some people will
+    think it is.
+
+    Groups and entries don't have true objects associated with them. At the
+    moment this is by design. The data is kept as plain boring data.
+
+SOURCES
+    Knowledge about the KeePass DB v1 format was gleaned from the source
+    code of keepassx-0.4.3. That source code is published under the GPL2
+    license. KeePassX 0.4.3 bears the copyright of
+
+        Copyright (C) 2005-2008 Tarek Saidi <tarek.saidi@arcor.de>
+        Copyright (C) 2007-2009 Felix Geyer <debfx-keepassx {at} fobos.de>
+
+    The encryption/decryption algorithms of File::KeePass are of derivative
+    nature from KeePassX and could not have been created without this
+    insight - though the perl code is from scratch.
+
+AUTHOR
+    Paul Seamons <paul at seamons dot com>
+
+LICENSE
+    This module may be distributed under the same terms as Perl itself.
+
